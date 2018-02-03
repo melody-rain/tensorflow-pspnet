@@ -4,7 +4,7 @@ This is an improvement of the implementation of [pudae's](https://github.com/pud
 1. Support ResNet-101, which is the original backbone network of [hszhao's PSPNet](https://github.com/hszhao/PSPNet).
 2. Support auxiliary loss.
 3. Support weighted softmax loss.
-4. Convert the [pspnet101_VOC2012.caffemodel](https://github.com/hszhao/PSPNet) to Tensorflow model, which can be downloaded from [Baidu Yun Pan](https://pan.baidu.com/s/1i6QaK4X).<!--- or [Goole Drive](https://pan.baidu.com/s/1i6QaK4X).-->
+4. Convert the [pspnet101_VOC2012.caffemodel](https://github.com/hszhao/PSPNet) to Tensorflow model, which can be downloaded from [Baidu Yun Pan](https://pan.baidu.com/s/1i6QaK4X) or [Goole Drive](https://drive.google.com/open?id=18Gi3vHQYSp9s5-l_cSzp8zo4D8dpGqlD).
 Download it and you can test VOC2012's images with ```test_segmentation.sh```.
 
 The way to convert the caffe model to TF model can be done with [caffe-tensorflow](https://github.com/melody-rain/caffe-tensorflow). With an ugly way I converted the caffe model's names to the name scopes of PSPNet defined in ```pspnet_v1.py```.
