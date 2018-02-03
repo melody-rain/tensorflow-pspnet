@@ -38,7 +38,7 @@ tf.app.flags.DEFINE_string(
     'dataset_dir', None, 'The directory where the dataset files are stored.')
 
 tf.app.flags.DEFINE_string(
-    'model_name', 'pspnet_v1_50', 'The name of the architecture to evaluate.')
+    'model_name', 'pspnet_v1_101', 'The name of the architecture to evaluate.')
 
 tf.app.flags.DEFINE_string(
     'preprocessing_name', None, 'The name of the preprocessing to use. If left '
@@ -106,7 +106,7 @@ def main(_):
     ####################
     # Define the model #
     ####################
-    logits, _ = network_fn(images)
+    logits, _, _ = network_fn(images)
     variables_to_restore = slim.get_variables_to_restore()
 
     predictions = tf.argmax(logits, 3)
@@ -118,7 +118,7 @@ def main(_):
     mean_iou = tf.contrib.metrics.streaming_mean_iou(predictions, labels, num_classes)
     names_to_values, names_to_updates =\
         tf.contrib.metrics.aggregate_metric_map({
-          'Pixel ACC': pixel_acc,
+          'Pixel_ACC': pixel_acc,
           'IOU': mean_iou
         })
 
@@ -138,7 +138,11 @@ def main(_):
 
     tf.logging.info('Evaluating %s' % checkpoint_path)
 
+    session_config = tf.ConfigProto()
+    session_config.gpu_options.allow_growth = True
+
     slim.evaluation.evaluate_once(
+        session_config=session_config,
         master='',
         checkpoint_path=checkpoint_path,
         logdir=FLAGS.eval_dir,

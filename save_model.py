@@ -22,14 +22,13 @@ tf.app.flags.DEFINE_string(
     'checkpoint file.')
 
 tf.app.flags.DEFINE_string(
-    'model_name', 'pspnet_v1_50', 'The name of the architecture to evaluate.')
+    'model_name', 'pspnet_v1_101', 'The name of the architecture to evaluate.')
 
 tf.app.flags.DEFINE_string(
     'output_dir', 'model', 'The directory where the protobuf be written')
 
 tf.app.flags.DEFINE_string(
-    'output_filename', 'pspnet_v1_50.pb', 'The filename of the protobuf')
-
+    'output_filename', 'pspnet_v1_101.pb', 'The filename of the protobuf')
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -76,59 +75,58 @@ def _mean_image_subtraction2(image):
 
 
 def main(_):
+    tf.logging.set_verbosity(tf.logging.INFO)
+    with tf.Graph().as_default() as g:
+        tf_global_step = slim.get_or_create_global_step()
 
-  tf.logging.set_verbosity(tf.logging.INFO)
-  with tf.Graph().as_default() as g:
-    tf_global_step = slim.get_or_create_global_step()
+        ####################
+        # Select the model #
+        ####################
+        network_fn = nets_factory.get_network_fn(
+            FLAGS.model_name,
+            num_classes=2,
+            is_training=True)
 
-    ####################
-    # Select the model #
-    ####################
-    network_fn = nets_factory.get_network_fn(
-        FLAGS.model_name,
-        num_classes=2,
-        is_training=False)
+        #####################################
+        # Select the preprocessing function #
+        #####################################
+        image_X = tf.placeholder(tf.float32, (473, 473, 3), name='ph_input_x')
+        image = image_X - [_R_MEAN, _G_MEAN, _B_MEAN]
+        images = tf.expand_dims(image, axis=[0])
 
-    #####################################
-    # Select the preprocessing function #
-    #####################################
-    image_X = tf.placeholder(tf.float32, (224, 224, 3), name='ph_input_x')
-    image = _mean_image_subtraction(image_X, [_R_MEAN, _G_MEAN, _B_MEAN])
-    images = tf.expand_dims(image, axis=[0])
+        ####################
+        # Define the model #
+        ####################
+        logits, _, _ = network_fn(images)
+        variables_to_restore = slim.get_variables_to_restore()
 
-    ####################
-    # Define the model #
-    ####################
-    logits, ep = network_fn(images)
-    variables_to_restore = slim.get_variables_to_restore()
+        softmax = tf.nn.softmax(logits, name='softmax2')
+        softmax = tf.reshape(softmax, shape=(-1, 473, 473, 2), name='softmax')
+        predictions = tf.argmax(softmax, 3, name='predictions')
 
-    softmax = tf.nn.softmax(logits, name='softmax2')
-    softmax = tf.reshape(softmax, shape=(-1,224,224,2), name='softmax')
-    predictions = tf.argmax(softmax, 3, name='predictions')
+        if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
+            checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
+        else:
+            checkpoint_path = FLAGS.checkpoint_path
 
-    if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-      checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
-    else:
-      checkpoint_path = FLAGS.checkpoint_path
+        tf.logging.info('Evaluating %s' % checkpoint_path)
 
-    tf.logging.info('Evaluating %s' % checkpoint_path)
+        sess = tf.Session()
 
-    sess = tf.Session()
+        saver = tf.train.Saver(variables_to_restore)
 
-    saver = tf.train.Saver(variables_to_restore)
+        init_op = tf.group(
+            tf.global_variables_initializer(),
+            tf.local_variables_initializer())
 
-    init_op = tf.group(
-      tf.global_variables_initializer(),
-      tf.local_variables_initializer())
+        sess.run(init_op)
+        saver.restore(sess, checkpoint_path)
 
-    sess.run(init_op)
-    saver.restore(sess, checkpoint_path)
+        g2 = tf.graph_util.convert_variables_to_constants(sess, g.as_graph_def(),
+                                                          ['softmax', 'predictions'])
 
-    g2 = tf.graph_util.convert_variables_to_constants(sess, g.as_graph_def(),
-                                                      ['softmax', 'predictions'])
-
-    tf.train.write_graph(g2, FLAGS.output_dir, FLAGS.output_filename, as_text=False)
+        tf.train.write_graph(g2, FLAGS.output_dir, FLAGS.output_filename, as_text=False)
 
 
 if __name__ == '__main__':
-  tf.app.run()
+    tf.app.run()

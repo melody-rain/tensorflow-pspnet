@@ -22,18 +22,20 @@ tf.app.flags.DEFINE_string(
     'checkpoint file.')
 
 tf.app.flags.DEFINE_string(
-    'model_name', 'pspnet_v1_50', 'The name of the architecture to evaluate.')
+    'model_name', 'pspnet_v1_101', 'The name of the architecture to evaluate.')
 
 tf.app.flags.DEFINE_string(
     'image', None, 'Test image')
 
+tf.app.flags.DEFINE_float(
+    'moving_average_decay', 0,
+    'The decay to use for the moving average.'
+    'If left as None, then moving averages are not used.')
 FLAGS = tf.app.flags.FLAGS
 
 _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
-
-
 
 palette = [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.0, 0.5, 0.0), (0.5, 0.5, 0.0),
            (0.0, 0.0, 0.5), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5), (0.5, 0.5, 0.5),
@@ -41,134 +43,105 @@ palette = [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.0, 0.5, 0.0), (0.5, 0.5, 0.0),
            (0.25, 0.0, 0.5), (0.75, 0.0, 0.5), (0.25, 0.5, 0.5), (0.75, 0.5, 0.5),
            (0.0, 0.25, 0.0), (0.5, 0.25, 0.0), (0.0, 0.75, 0.0), (0.5, 0.75, 0.0),
            (0.0, 0.25, 0.5)]
-my_cmap = mpl_colors.LinearSegmentedColormap.from_list('Custom cmap', palette, 21)
 
-def _mean_image_subtraction(image, means):
-  """Subtracts the given means from each image channel.
+num_class = 21
+palette = palette[:num_class]
+my_cmap = mpl_colors.LinearSegmentedColormap.from_list('Custom cmap', palette, num_class)
 
-  For example:
-    means = [123.68, 116.779, 103.939]
-    image = _mean_image_subtraction(image, means)
-
-  Note that the rank of `image` must be known.
-
-  Args:
-    image: a tensor of size [height, width, C].
-    means: a C-vector of values to subtract from each channel.
-
-  Returns:
-    the centered image.
-
-  Raises:
-    ValueError: If the rank of `image` is unknown, if `image` has a rank other
-      than three or if the number of channels in `image` doesn't match the
-      number of values in `means`.
-  """
-  if image.get_shape().ndims != 3:
-    raise ValueError('Input must be of size [height, width, C>0]')
-  num_channels = image.get_shape().as_list()[-1]
-  if len(means) != num_channels:
-    raise ValueError('len(means) must match the number of channels')
-
-  channels = tf.split(image, num_channels, 2)
-  for i in range(num_channels):
-    channels[i] -= means[i]
-  return tf.concat(channels, 2)
-
-
-def _mean_image_subtraction2(image):
-  means = np.array([123.68, 116.78, 103.94])
-  return image - means
 
 
 def main(_):
+    tf.logging.set_verbosity(tf.logging.INFO)
+    with tf.Graph().as_default():
+        tf_global_step = tf.train.get_or_create_global_step()
 
-  tf.logging.set_verbosity(tf.logging.INFO)
-  with tf.Graph().as_default():
-    tf_global_step = slim.get_or_create_global_step()
+        ####################
+        # Select the model #
+        ####################
+        network_fn = nets_factory.get_network_fn(
+            FLAGS.model_name,
+            num_classes=num_class,
+            is_training=False)
 
-    ####################
-    # Select the model #
-    ####################
-    network_fn = nets_factory.get_network_fn(
-        FLAGS.model_name,
-        num_classes=150,
-        is_training=False)
+        #####################################
+        # Select the preprocessing function #
+        #####################################
+        input_image_ori = scipy.misc.imread(FLAGS.image)
+        H, W = input_image_ori.shape[0], input_image_ori.shape[1]
+        input_image = scipy.misc.imresize(input_image_ori, (473, 473))
 
-    #####################################
-    # Select the preprocessing function #
-    #####################################
-    input_image_ori = scipy.misc.imread(FLAGS.image)
-    H, W = input_image_ori.shape[0], input_image_ori.shape[1]
-    input_image = scipy.misc.imresize(input_image_ori, (224, 224))
-    print('image.shape:', input_image.shape)
+        image_X = tf.placeholder(tf.uint8, input_image.shape)
+        # image = image_X - [_R_MEAN, _G_MEAN, _B_MEAN]
+        image = tf.image.convert_image_dtype(image_X, dtype=tf.float32)
+        images = tf.expand_dims(image, axis=[0])
 
-    image_X = tf.placeholder(tf.float32, input_image.shape)
-    image = _mean_image_subtraction(image_X, [_R_MEAN, _G_MEAN, _B_MEAN])
-    images = tf.expand_dims(image, axis=[0])
-    #images = tf.expand_dims(image_X, axis=[0])
+        ####################
+        # Define the model #
+        ####################
+        logits, _, _ = network_fn(images)
+        logits = slim.softmax(logits)
 
-    ####################
-    # Define the model #
-    ####################
-    logits, _ = network_fn(images)
-    variables_to_restore = slim.get_variables_to_restore()
+        if FLAGS.moving_average_decay > 0:
+            variable_averages = tf.train.ExponentialMovingAverage(
+                FLAGS.moving_average_decay, tf_global_step)
+            variables_to_restore = variable_averages.variables_to_restore(
+                slim.get_model_variables())
+            variables_to_restore[tf_global_step.op.name] = tf_global_step
+        else:
+            variables_to_restore = slim.get_variables_to_restore()
 
-    for v in variables_to_restore:
-      print(v)
-    return
+        if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
+            checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
+        else:
+            checkpoint_path = FLAGS.checkpoint_path
 
-    # predictions = tf.argmax(logits, 1)
-    predictions = tf.argmax(logits, 3)
+        tf.logging.info('Evaluating %s' % checkpoint_path)
 
-    print('logits:', logits.get_shape())
-    # print('predictions:', predictions.get_shape())
+        sess = tf.Session()
 
-    if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-      checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
-    else:
-      checkpoint_path = FLAGS.checkpoint_path
+        saver = tf.train.Saver(variables_to_restore)
 
-    tf.logging.info('Evaluating %s' % checkpoint_path)
+        init_op = tf.group(
+            tf.global_variables_initializer(),
+            tf.local_variables_initializer())
 
-    sess = tf.Session()
+        sess.run(init_op)
+        saver.restore(sess, checkpoint_path)
 
-    saver = tf.train.Saver(variables_to_restore)
+        import time
+        before = time.time()
+        input_img, logit = sess.run([image, logits], feed_dict={image_X: input_image})
+        print(time.time() - before)
 
-    init_op = tf.group(
-      tf.global_variables_initializer(),
-      tf.local_variables_initializer())
+        before = time.time()
+        input_img, logit = sess.run([image, logits], feed_dict={image_X: input_image})
+        print(time.time() - before)
 
-    sess.run(init_op)
-    saver.restore(sess, checkpoint_path)
+        logit = logit[0]
 
-    logits = tf.image.resize_images(logits, (H, W)) 
-    logit = sess.run(logits, feed_dict={image_X: input_image})[0]
-    print(logit.shape)
-    p = np.argmax(logit, axis=2)
-    p = p.astype(np.uint8)
-    print(np.unique(p))
+        p = np.argmax(logit, axis=2)
+        p = p.astype(np.uint8)
 
-    fig = plt.figure()
-    ax = fig.add_subplot('121')
-    ax.imshow(input_image_ori)
-    ax = fig.add_subplot('122')
-    ax.matshow(p, vmin=0, vmax=21, cmap=my_cmap)
-    plt.show()
-
-    for m in [3]: #np.unique(p):
-        print(m)
-        m = p == m
-        m = m.astype(np.uint8)
-        masked = input_image_ori * m[:,:,np.newaxis]
+        p = scipy.misc.imresize(p, (H, W))
 
         fig = plt.figure()
         ax = fig.add_subplot('121')
         ax.imshow(input_image_ori)
         ax = fig.add_subplot('122')
-        ax.imshow(masked) #, cmap='gray')
+        ax.matshow(p, vmin=0, vmax=21, cmap=my_cmap)
+        plt.show()
+
+        m = p == 1
+        m = m.astype(np.uint8)
+        masked = input_image_ori * m[:, :, np.newaxis]
+
+        fig = plt.figure()
+        ax = fig.add_subplot('121')
+        ax.imshow(input_image_ori)
+        ax = fig.add_subplot('122')
+        ax.imshow(masked)  # , cmap='gray')
         plt.show()
 
 
 if __name__ == '__main__':
-  tf.app.run()
+    tf.app.run()
