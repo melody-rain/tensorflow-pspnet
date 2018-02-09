@@ -30,3 +30,4 @@ python train_semantic_segmentation.py \
   --learning_rate_decay_type=polynomial \
   --learning_rate_decay_factor=0.99 \
   --num_clones=4 \
+  --freeze_bn \

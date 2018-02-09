@@ -75,6 +75,7 @@ def pspnet_v1(inputs,
               levels,
               num_classes=None,
               is_training=True,
+              freeze_bn=False,
               reuse=None,
               scope=None):
     with tf.variable_scope(scope, 'pspnet_v1', [inputs], reuse=reuse) as sc:
@@ -83,7 +84,7 @@ def pspnet_v1(inputs,
                              pspnet_utils.stack_blocks_dense,
                              pspnet_utils.pyramid_pooling_module],
                             outputs_collections=end_points_collection):
-            with slim.arg_scope([slim.batch_norm], is_training=is_training):
+            with slim.arg_scope([slim.batch_norm], is_training=freeze_bn):
                 net = inputs
 
                 net = root_block(net)
@@ -146,6 +147,7 @@ def pspnet_v1_50(inputs,
 def pspnet_v1_101(inputs,
                   num_classes=None,
                   is_training=True,
+                  freeze_bn=False,
                   reuse=None,
                   scope='pspnet_v1_101'):
     blocks = [
@@ -166,5 +168,5 @@ def pspnet_v1_101(inputs,
         pspnet_utils.Level('level4', pyramid_pooling, ((10, 10), 512)),
     ]
 
-    return pspnet_v1(inputs, blocks, levels, num_classes, is_training,
+    return pspnet_v1(inputs, blocks, levels, num_classes, is_training, freeze_bn,
                      reuse=reuse, scope=scope)

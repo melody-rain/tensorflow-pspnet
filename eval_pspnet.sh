@@ -12,4 +12,5 @@ python eval_semantic_segmentation.py \
 --model_name=pspnet_v1_101 \
 --checkpoint_path=${CHECKPOINT_PATH} \
 --eval_image_size=473 \
---batch_size=8
+--batch_size=8 \
+--freeze_bn \

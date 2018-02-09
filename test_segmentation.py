@@ -53,7 +53,7 @@ my_cmap = mpl_colors.LinearSegmentedColormap.from_list('Custom cmap', palette, n
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
     with tf.Graph().as_default():
-        tf_global_step = tf.train.get_or_create_global_step()
+        tf_global_step = 0#tf.train.get_or_create_global_step()
 
         ####################
         # Select the model #
@@ -71,8 +71,9 @@ def main(_):
         input_image = scipy.misc.imresize(input_image_ori, (473, 473))
 
         image_X = tf.placeholder(tf.uint8, input_image.shape)
-        # image = image_X - [_R_MEAN, _G_MEAN, _B_MEAN]
-        image = tf.image.convert_image_dtype(image_X, dtype=tf.float32)
+        image_X = tf.to_float(image_X)
+        image = image_X - [_R_MEAN, _G_MEAN, _B_MEAN]
+        # image = tf.image.convert_image_dtype(image_X, dtype=tf.float32)
         images = tf.expand_dims(image, axis=[0])
 
         ####################

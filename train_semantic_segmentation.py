@@ -26,6 +26,9 @@ tf.app.flags.DEFINE_integer('num_clones', 1,
 tf.app.flags.DEFINE_boolean('clone_on_cpu', False,
                             'Use CPUs to deploy clones.')
 
+tf.app.flags.DEFINE_boolean('freeze_bn', False,
+                            'freeze batch normal.')
+
 tf.app.flags.DEFINE_integer('worker_replicas', 1, 'Number of worker replicas.')
 
 tf.app.flags.DEFINE_integer(
@@ -406,8 +409,8 @@ def main(_):
             FLAGS.model_name,
             num_classes=num_classes,
             weight_decay=FLAGS.weight_decay,
-            is_training=True)
-
+            is_training=True,
+            freeze_bn=FLAGS.freeze_bn)
         #####################################
         # Select the preprocessing function #
         #####################################

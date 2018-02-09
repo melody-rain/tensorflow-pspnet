@@ -170,17 +170,17 @@ def _central_crop(image_list, label_list, crop_height, crop_width):
     return output_images, output_labels
 
 
-def _mean_image_subtraction(image, means):
+def _mean_image_subtraction(image):
+    means = tf.constant([_R_MEAN, _G_MEAN, _B_MEAN], dtype=tf.float32)
+    means = tf.reshape(means, [1, 1, 3])
+
     if image.get_shape().ndims != 3:
         raise ValueError('Input must be of size [height, width, C>0]')
     num_channels = image.get_shape().as_list()[-1]
-    if len(means) != num_channels:
+    if means.get_shape().as_list()[-1] != num_channels:
         raise ValueError('len(means) must match the number of channels')
 
-    channels = tf.split(axis=2, num_or_size_splits=num_channels, value=image)
-    for i in range(num_channels):
-        channels[i] -= means[i]
-    return tf.concat(axis=2, values=channels)
+    return image - means
 
 
 def _smallest_size_at_least(height, width, smallest_side):
@@ -228,8 +228,10 @@ def preprocess_for_train(image,
                          output_width,
                          resize_side_min=_RESIZE_SIDE_MIN,
                          resize_side_max=_RESIZE_SIDE_MAX):
-    if image.dtype != tf.float32:
-        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    image = tf.to_float(image)
+    image = _mean_image_subtraction(image)
+    # if image.dtype != tf.float32:
+    #     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 
     resize_side = tf.random_uniform(
         [], minval=resize_side_min, maxval=resize_side_max + 1, dtype=tf.int32)
@@ -251,17 +253,20 @@ def preprocess_for_train(image,
     image = tf.cond(val_ud > 0.5, lambda: tf.image.flip_up_down(image), lambda: image)
     label = tf.cond(val_ud > 0.5, lambda: tf.image.flip_up_down(label), lambda: label)
 
-    image = _apply_with_random_selector(
-        image,
-        lambda x, ordering: _distort_color(x, ordering, fast_mode=True),
-        num_cases=4)
+    # image = _apply_with_random_selector(
+    #     image,
+    #     lambda x, ordering: _distort_color(x, ordering, fast_mode=True),
+    #     num_cases=4)
 
     return image, label
 
 
 def preprocess_for_eval(image, label, output_height, output_width, resize_side):
-    if image.dtype != tf.float32:
-        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    image = tf.to_float(image)
+    image = _mean_image_subtraction(image)
+
+    # if image.dtype != tf.float32:
+    #     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 
     image, label = _aspect_preserving_resize(image, label, resize_side)
     cropped_images, cropped_labels = _central_crop([image], [label], output_height, output_width)
