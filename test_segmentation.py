@@ -13,7 +13,10 @@ from matplotlib import colors as mpl_colors
 
 from datasets import dataset_factory
 from nets import nets_factory
-
+import os
+import cv2
+from PIL import Image
+import json
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_string(
@@ -36,18 +39,14 @@ FLAGS = tf.app.flags.FLAGS
 _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
-
-palette = [(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.0, 0.5, 0.0), (0.5, 0.5, 0.0),
-           (0.0, 0.0, 0.5), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5), (0.5, 0.5, 0.5),
-           (0.25, 0.0, 0.0), (0.75, 0.0, 0.0), (0.25, 0.5, 0.0), (0.75, 0.5, 0.0),
-           (0.25, 0.0, 0.5), (0.75, 0.0, 0.5), (0.25, 0.5, 0.5), (0.75, 0.5, 0.5),
-           (0.0, 0.25, 0.0), (0.5, 0.25, 0.0), (0.0, 0.75, 0.0), (0.5, 0.75, 0.0),
-           (0.0, 0.25, 0.5)]
-
 num_class = 21
-palette = palette[:num_class]
-my_cmap = mpl_colors.LinearSegmentedColormap.from_list('Custom cmap', palette, num_class)
 
+color_info_file = 'pascal_voc.json'
+with open(color_info_file) as fd:
+    data = json.load(fd)
+    palette = np.array(data['palette'][:num_class], dtype=np.uint8)
+
+mean_pixel = np.array([104.008, 116.669, 122.675], dtype=np.float)
 
 
 def main(_):
@@ -66,82 +65,47 @@ def main(_):
         #####################################
         # Select the preprocessing function #
         #####################################
-        input_image_ori = scipy.misc.imread(FLAGS.image)
-        H, W = input_image_ori.shape[0], input_image_ori.shape[1]
-        input_image = scipy.misc.imresize(input_image_ori, (473, 473))
+        file_name = os.path.basename(FLAGS.image)
+        file_name = file_name[:file_name.rfind('.')]
+        # preprocess images
+        image_ori = cv2.imread(FLAGS.image).astype(np.float32) - mean_pixel
+        img_shape = image_ori.shape
 
-        image_X = tf.placeholder(tf.uint8, input_image.shape)
-        image_X = tf.to_float(image_X)
-        image = image_X - [_R_MEAN, _G_MEAN, _B_MEAN]
-        # image = tf.image.convert_image_dtype(image_X, dtype=tf.float32)
-        images = tf.expand_dims(image, axis=[0])
+        img = cv2.resize(image_ori, (473, 473), interpolation=cv2.INTER_CUBIC)
+
+        image_h = tf.placeholder(tf.float32, img.shape)
+        images = tf.expand_dims(image_h, axis=0)
 
         ####################
         # Define the model #
         ####################
-        logits, _, _ = network_fn(images)
-        logits = slim.softmax(logits)
+        net, end_points = network_fn(images)
 
-        if FLAGS.moving_average_decay > 0:
-            variable_averages = tf.train.ExponentialMovingAverage(
-                FLAGS.moving_average_decay, tf_global_step)
-            variables_to_restore = variable_averages.variables_to_restore(
-                slim.get_model_variables())
-            variables_to_restore[tf_global_step.op.name] = tf_global_step
-        else:
-            variables_to_restore = slim.get_variables_to_restore()
+        raw_output_up = net
 
-        if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-            checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
-        else:
-            checkpoint_path = FLAGS.checkpoint_path
+        raw_output_up = tf.image.resize_bilinear(raw_output_up, size=[img_shape[0], img_shape[1]], align_corners=True)
+        raw_output_up = tf.argmax(raw_output_up, dimension=3)
 
-        tf.logging.info('Evaluating %s' % checkpoint_path)
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        init = tf.global_variables_initializer()
 
-        sess = tf.Session()
+        sess.run(init)
 
-        saver = tf.train.Saver(variables_to_restore)
+        restore_var = tf.global_variables()
 
-        init_op = tf.group(
-            tf.global_variables_initializer(),
-            tf.local_variables_initializer())
+        ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_path)
+        saver = tf.train.Saver(var_list=restore_var)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+        print("Restored model parameters from {}".format(ckpt.model_checkpoint_path))
 
-        sess.run(init_op)
-        saver.restore(sess, checkpoint_path)
+        in_img, preds = sess.run([images, raw_output_up], feed_dict={image_h: img})
+        preds = preds[0]
 
-        import time
-        before = time.time()
-        input_img, logit = sess.run([image, logits], feed_dict={image_X: input_image})
-        print(time.time() - before)
-
-        before = time.time()
-        input_img, logit = sess.run([image, logits], feed_dict={image_X: input_image})
-        print(time.time() - before)
-
-        logit = logit[0]
-
-        p = np.argmax(logit, axis=2)
-        p = p.astype(np.uint8)
-
-        p = scipy.misc.imresize(p, (H, W))
-
-        fig = plt.figure()
-        ax = fig.add_subplot('121')
-        ax.imshow(input_image_ori)
-        ax = fig.add_subplot('122')
-        ax.matshow(p, vmin=0, vmax=21, cmap=my_cmap)
-        plt.show()
-
-        m = p == 1
-        m = m.astype(np.uint8)
-        masked = input_image_ori * m[:, :, np.newaxis]
-
-        fig = plt.figure()
-        ax = fig.add_subplot('121')
-        ax.imshow(input_image_ori)
-        ax = fig.add_subplot('122')
-        ax.imshow(masked)  # , cmap='gray')
-        plt.show()
+        im = Image.fromarray(preds.astype(np.uint8), mode='P')
+        im.putpalette(palette.flatten())
+        im.save('pred_{}.png'.format(file_name))
 
 
 if __name__ == '__main__':

@@ -41,11 +41,11 @@ def bottleneck(inputs, depth, depth_bottleneck, stride, rate=1,
                                    activation_fn=None, scope='shortcut')
 
         residual = slim.conv2d(inputs, depth_bottleneck, [1, 1], stride=stride[0],
-                               scope='conv1')
+                               scope='conv1') # reduce
         residual = pspnet_utils.conv2d_same(residual, depth_bottleneck, 3, stride[1],
                                             rate=rate, scope='conv2')
         residual = slim.conv2d(residual, depth, [1, 1], stride=stride[2],
-                               activation_fn=None, scope='conv3')
+                               activation_fn=None, scope='conv3') # increase
 
         output = tf.nn.relu(shortcut + residual)
 
@@ -117,6 +117,39 @@ def pspnet_v1(inputs,
                 return net, end_points, aux_net
 
 
+def pspnet_v1_infer(inputs,
+                    blocks,
+                    levels,
+                    num_classes=None,
+                    is_training=True,
+                    freeze_bn=False,
+                    reuse=None,
+                    scope=None):
+    with tf.variable_scope(scope, 'pspnet_v1', [inputs], reuse=reuse) as sc:
+        end_points_collection = sc.name + '_end_points'
+        with slim.arg_scope([slim.conv2d, bottleneck, pyramid_pooling,
+                             pspnet_utils.stack_blocks_dense,
+                             pspnet_utils.pyramid_pooling_module],
+                            outputs_collections=end_points_collection):
+            with slim.arg_scope([slim.batch_norm], is_training=freeze_bn):
+                net = inputs
+
+                net = root_block(net)
+
+                net, aux_net = pspnet_utils.stack_blocks_dense(net, blocks, None)
+
+                net = pspnet_utils.pyramid_pooling_module(net, levels)
+                net = slim.conv2d(net, 512, [3, 3], stride=1, scope='fc1')
+                net = slim.dropout(net, keep_prob=0.9, is_training=is_training)
+
+                net = slim.conv2d(net, num_classes, [1, 1], activation_fn=None,
+                                  normalizer_fn=None, scope='logits')
+
+                end_points = slim.utils.convert_collection_to_dict(end_points_collection)
+
+                return net, end_points
+
+
 def pspnet_v1_50(inputs,
                  num_classes=None,
                  is_training=True,
@@ -154,7 +187,7 @@ def pspnet_v1_101(inputs,
         pspnet_utils.Block(
             'block1', bottleneck, [(256, 64, (1, 1, 1), 1)] * 3),
         pspnet_utils.Block(
-            'block2', bottleneck, [(512, 128, (2, 1, 1), 1)] + [(512, 128, (1, 1, 1), 1)] * 3),
+            'block2', bottleneck, [(512, 128, (1, 2, 1), 1)] + [(512, 128, (1, 1, 1), 1)] * 3),
         pspnet_utils.Block(
             'block3', bottleneck, [(1024, 256, (1, 1, 1), 2)] * 23),
         pspnet_utils.Block(
@@ -168,5 +201,9 @@ def pspnet_v1_101(inputs,
         pspnet_utils.Level('level4', pyramid_pooling, ((10, 10), 512)),
     ]
 
-    return pspnet_v1(inputs, blocks, levels, num_classes, is_training, freeze_bn,
-                     reuse=reuse, scope=scope)
+    if is_training:
+        return pspnet_v1(inputs, blocks, levels, num_classes, is_training, freeze_bn,
+                         reuse=reuse, scope=scope)
+    else:
+        return pspnet_v1_infer(inputs, blocks, levels, num_classes, is_training, freeze_bn,
+                               reuse=reuse, scope=scope)
