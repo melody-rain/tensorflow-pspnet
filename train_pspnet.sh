@@ -13,7 +13,7 @@ python train_semantic_segmentation.py \
   --train_dir=${TRAIN_DIR} \
   --dataset_dir=${DATASET_DIR} \
   --checkpoint_path=${CHECKPOINT_PATH} \
-  --dataset_name=DATASET_NAME \  # change to your dataset name
+  --dataset_name=ade20k \  # change to your dataset name
   --dataset_split_name=train \
   --model_name=pspnet_v1_101 \
   --optimizer=momentum \
@@ -30,4 +30,4 @@ python train_semantic_segmentation.py \
   --learning_rate_decay_type=polynomial \
   --learning_rate_decay_factor=0.99 \
   --num_clones=4 \
-  --freeze_bn \
+#--freeze_bn \

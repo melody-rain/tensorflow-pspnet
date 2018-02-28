@@ -63,7 +63,7 @@ def pyramid_pooling(inputs, pool_size, depth,
 
         pool1 = slim.avg_pool2d(inputs, pool_size, stride=pool_size, scope='pool1')
         conv1 = slim.conv2d(pool1, depth, [1, 1], stride=1, scope='conv1')
-        output = tf.image.resize_bilinear(conv1, [out_height, out_width])
+        output = tf.image.resize_bilinear(conv1, [out_height, out_width], align_corners=True)
 
         return slim.utils.collect_named_outputs(outputs_collections,
                                                 sc.original_name_scope,
@@ -75,7 +75,7 @@ def pspnet_v1(inputs,
               levels,
               num_classes=None,
               is_training=True,
-              freeze_bn=False,
+              not_freeze_bn=False,
               reuse=None,
               scope=None):
     with tf.variable_scope(scope, 'pspnet_v1', [inputs], reuse=reuse) as sc:
@@ -84,75 +84,44 @@ def pspnet_v1(inputs,
                              pspnet_utils.stack_blocks_dense,
                              pspnet_utils.pyramid_pooling_module],
                             outputs_collections=end_points_collection):
-            with slim.arg_scope([slim.batch_norm], is_training=freeze_bn):
+            not_freeze_bn = False if not is_training else not_freeze_bn
+            with slim.arg_scope([slim.batch_norm], is_training=not_freeze_bn):
                 net = inputs
-
                 net = root_block(net)
 
                 net, aux_net = pspnet_utils.stack_blocks_dense(net, blocks, None)
 
                 net = pspnet_utils.pyramid_pooling_module(net, levels)
                 net = slim.conv2d(net, 512, [3, 3], stride=1, scope='fc1')
-                net = slim.dropout(net, keep_prob=0.9, is_training=is_training)
+
+                if is_training:
+                    net = slim.dropout(net, keep_prob=0.9, is_training=is_training)
 
                 net = slim.conv2d(net, num_classes, [1, 1], activation_fn=None,
                                   normalizer_fn=None, scope='logits')
 
-                dims = inputs.get_shape().dims
-                out_height, out_width = dims[1].value, dims[2].value
-                net = tf.image.resize_bilinear(net, [out_height, out_width])
+                # dims = inputs.get_shape().dims
+                # out_height, out_width = dims[1].value, dims[2].value
+                # net = tf.image.resize_bilinear(net, [out_height, out_width], align_corners=True)
 
                 end_points = slim.utils.convert_collection_to_dict(end_points_collection)
-                end_points['predictions'] = slim.softmax(net, scope='predictions')
+                # end_points['predictions'] = slim.softmax(net, scope='predictions')
 
                 if is_training:
                     # aux branch
                     aux_net = slim.conv2d(aux_net, num_classes, [1, 1], activation_fn=None,
                                           normalizer_fn=None, scope='aux_logits')
-                    aux_net = tf.image.resize_bilinear(aux_net, [out_height, out_width])
-                    end_points['aux_predictions'] = slim.softmax(aux_net, scope='aux_predictions')
-                else:
-                    aux_net = None
+                    # aux_net = tf.image.resize_bilinear(aux_net, [out_height, out_width], align_corners=True)
+                    # end_points['aux_predictions'] = slim.softmax(aux_net, scope='aux_predictions')
 
                 return net, end_points, aux_net
 
-
-def pspnet_v1_infer(inputs,
-                    blocks,
-                    levels,
-                    num_classes=None,
-                    is_training=True,
-                    freeze_bn=False,
-                    reuse=None,
-                    scope=None):
-    with tf.variable_scope(scope, 'pspnet_v1', [inputs], reuse=reuse) as sc:
-        end_points_collection = sc.name + '_end_points'
-        with slim.arg_scope([slim.conv2d, bottleneck, pyramid_pooling,
-                             pspnet_utils.stack_blocks_dense,
-                             pspnet_utils.pyramid_pooling_module],
-                            outputs_collections=end_points_collection):
-            with slim.arg_scope([slim.batch_norm], is_training=freeze_bn):
-                net = inputs
-
-                net = root_block(net)
-
-                net, aux_net = pspnet_utils.stack_blocks_dense(net, blocks, None)
-
-                net = pspnet_utils.pyramid_pooling_module(net, levels)
-                net = slim.conv2d(net, 512, [3, 3], stride=1, scope='fc1')
-                net = slim.dropout(net, keep_prob=0.9, is_training=is_training)
-
-                net = slim.conv2d(net, num_classes, [1, 1], activation_fn=None,
-                                  normalizer_fn=None, scope='logits')
-
-                end_points = slim.utils.convert_collection_to_dict(end_points_collection)
-
-                return net, end_points
 
 
 def pspnet_v1_50(inputs,
                  num_classes=None,
                  is_training=True,
+                 not_freeze_bn=False,
                  reuse=None,
                  scope='pspnet_v1_50'):
     blocks = [
@@ -173,7 +142,7 @@ def pspnet_v1_50(inputs,
         pspnet_utils.Level('level4', pyramid_pooling, ((10, 10), 512)),
     ]
 
-    return pspnet_v1(inputs, blocks, levels, num_classes, is_training,
+    return pspnet_v1(inputs, blocks, levels, num_classes, is_training, not_freeze_bn,
                      reuse=reuse, scope=scope)
 
 
@@ -201,9 +170,5 @@ def pspnet_v1_101(inputs,
         pspnet_utils.Level('level4', pyramid_pooling, ((10, 10), 512)),
     ]
 
-    if is_training:
-        return pspnet_v1(inputs, blocks, levels, num_classes, is_training, freeze_bn,
-                         reuse=reuse, scope=scope)
-    else:
-        return pspnet_v1_infer(inputs, blocks, levels, num_classes, is_training, freeze_bn,
-                               reuse=reuse, scope=scope)
+    return pspnet_v1(inputs, blocks, levels, num_classes, is_training, freeze_bn,
+                     reuse=reuse, scope=scope)

@@ -9,9 +9,9 @@ slim = tf.contrib.slim
 
 _FILE_PATTERN = 'ade20k_%s_*.tfrecord'
 
-SPLITS_TO_SIZES = {'training': 20213, 'validation': 2003}
+SPLITS_TO_SIZES = {'training': 20210, 'validation': 2000}
 
-_NUM_CLASSES = 150
+_NUM_CLASSES = 150  # labels are from 1 to 150
 
 _ITEMS_TO_DESCRIPTIONS = {
     'image': 'A color image of varying size.',
@@ -39,7 +39,8 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
   }
 
   items_to_handlers = {
-      'image': slim.tfexample_decoder.Image(),
+      'image': slim.tfexample_decoder.Image('image/encoded', 'image/format',
+                                            channels=3),
       'label': slim.tfexample_decoder.Image('label/encoded', 'label/format',
                                             channels=1)
   }

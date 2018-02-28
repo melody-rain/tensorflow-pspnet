@@ -399,7 +399,7 @@ def main(_):
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
         num_classes = dataset.num_classes
-        weights = [1.0] * num_classes # for weighted softmaxloss. set weights according to your needs
+        weights = [1.0] * num_classes  # for weighted softmaxloss. set weights according to your needs
         weights = tf.constant(np.asarray(weights, dtype=np.float32).reshape(1, num_classes))
 
         ######################
@@ -441,27 +441,31 @@ def main(_):
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size)
 
-            labels = slim.one_hot_encoding(labels, num_classes)
+            labels_one_hot = slim.one_hot_encoding(labels, num_classes)
 
-            batch_queue = slim.prefetch_queue.prefetch_queue([images, labels], capacity=2)
+            batch_queue = slim.prefetch_queue.prefetch_queue([images, labels_one_hot], capacity=2)
 
         ####################
         # Define the model #
         ####################
         def clone_fn(batch_queue):
-            images, labels = batch_queue.dequeue()
+            images, labels_one_hot = batch_queue.dequeue()
             tf.logging.info('images get_shape {}'.format(images.get_shape()))
             logits, end_points, aux_logits = network_fn(images)
+            logits = tf.image.resize_bilinear(logits,
+                                              size=(train_image_size, train_image_size), align_corners=True)
 
-            labels = tf.reshape(labels, logits.get_shape())
+            labels_one_hot = tf.reshape(labels_one_hot, logits.get_shape())
 
-            logits = tf.multiply(logits, weights)
+            # logits = tf.multiply(logits, weights)
             tf.losses.softmax_cross_entropy(
-                labels, logits, label_smoothing=FLAGS.label_smoothing)
+                labels_one_hot, logits, label_smoothing=FLAGS.label_smoothing)
 
-            aux_logits = tf.multiply(aux_logits, weights)
+            aux_logits = tf.image.resize_bilinear(aux_logits,
+                                                  size=(train_image_size, train_image_size), align_corners=True)
+            # aux_logits = tf.multiply(aux_logits, weights)
             tf.losses.softmax_cross_entropy(
-                labels, aux_logits, weights=0.4, label_smoothing=FLAGS.label_smoothing)
+                labels_one_hot, aux_logits, weights=0.4, label_smoothing=FLAGS.label_smoothing)
 
             return end_points
 

@@ -16,7 +16,7 @@ arg_scopes_map = {'pspnet_v1_50': pspnet_v1.pspnet_arg_scope,
                   'pspnet_v1_101': pspnet_v1.pspnet_arg_scope}
 
 
-def get_network_fn(name, num_classes, weight_decay=0.0, is_training=False, freeze_bn=False):
+def get_network_fn(name, num_classes, weight_decay=0.0, is_training=False, not_freeze_bn=False):
     if name not in networks_map:
         raise ValueError('Name of network unknown %s' % name)
 
@@ -26,7 +26,7 @@ def get_network_fn(name, num_classes, weight_decay=0.0, is_training=False, freez
     @functools.wraps(func)
     def network_fn(images):
         with slim.arg_scope(arg_scope):
-            return func(images, num_classes, is_training=is_training, freeze_bn=freeze_bn)
+            return func(images, num_classes, is_training=is_training, not_freeze_bn=not_freeze_bn)
 
     if hasattr(func, 'default_image_size'):
         network_fn.default_image_size = func.default_image_size

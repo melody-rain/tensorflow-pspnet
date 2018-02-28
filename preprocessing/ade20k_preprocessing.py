@@ -3,14 +3,16 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-
 from tensorflow.python.ops import control_flow_ops
+import numpy as np
 
 slim = tf.contrib.slim
 
 _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
+
+IMG_MEAN = np.array((_B_MEAN, _G_MEAN, _R_MEAN), dtype=np.float32)
 
 _RESIZE_SIDE_MIN = 473
 _RESIZE_SIDE_MAX = 1024
@@ -171,16 +173,13 @@ def _central_crop(image_list, label_list, crop_height, crop_width):
 
 
 def _mean_image_subtraction(image):
-    means = tf.constant([_R_MEAN, _G_MEAN, _B_MEAN], dtype=tf.float32)
-    means = tf.reshape(means, [1, 1, 3])
+    img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=image)
+    image = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
 
     if image.get_shape().ndims != 3:
         raise ValueError('Input must be of size [height, width, C>0]')
-    num_channels = image.get_shape().as_list()[-1]
-    if means.get_shape().as_list()[-1] != num_channels:
-        raise ValueError('len(means) must match the number of channels')
 
-    return image - means
+    return image - IMG_MEAN
 
 
 def _smallest_size_at_least(height, width, smallest_side):
@@ -230,8 +229,6 @@ def preprocess_for_train(image,
                          resize_side_max=_RESIZE_SIDE_MAX):
     image = tf.to_float(image)
     image = _mean_image_subtraction(image)
-    # if image.dtype != tf.float32:
-    #     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 
     resize_side = tf.random_uniform(
         [], minval=resize_side_min, maxval=resize_side_max + 1, dtype=tf.int32)
@@ -265,9 +262,6 @@ def preprocess_for_eval(image, label, output_height, output_width, resize_side):
     image = tf.to_float(image)
     image = _mean_image_subtraction(image)
 
-    # if image.dtype != tf.float32:
-    #     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-
     image, label = _aspect_preserving_resize(image, label, resize_side)
     cropped_images, cropped_labels = _central_crop([image], [label], output_height, output_width)
     image = cropped_images[0]
@@ -276,10 +270,30 @@ def preprocess_for_eval(image, label, output_height, output_width, resize_side):
     image.set_shape([output_height, output_width, 3])
     label.set_shape([output_height, output_width, 1])
 
+    # image = preprocess2(image, output_height, output_width)
+    # label = tf.expand_dims(label, dim=0)
+    # label = tf.image.resize_bilinear(label, (output_height, output_height), align_corners=True)
+
+    # label = tf.squeeze(label, axis=[0])
+    # image = tf.squeeze(image, axis=[0])
+
     image = tf.to_float(image)
     label = tf.to_int32(label)
 
     return image, label
+
+
+def preprocess2(img, h, w):
+    # Convert RGB to BGR
+    img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
+    img = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
+    # Extract mean.
+    img -= IMG_MEAN
+
+    pad_img = tf.expand_dims(img, dim=0)
+    pad_img = tf.image.resize_bilinear(pad_img, (h, w), align_corners=True)
+
+    return pad_img
 
 
 def preprocess_image(image, output_height, output_width,
